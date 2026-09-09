@@ -95,14 +95,20 @@ def listar_hojas_guardadas():
     archivos.sort(reverse=True)
     return archivos
 
-def exportar_a_excel(registros):
-    """Crea o actualiza el archivo Excel diario sin generar copias duplicadas"""
+def exportar_a_excel(registros, con_timestamp=False):
+    """Crea un archivo Excel. Si con_timestamp=True, genera un nombre único con hora exacta."""
     if not registros:
         return None
 
     carpeta = obtener_directorio_guardado()
-    # Modificado para usar solo la fecha (YYYY-MM-DD) y sobrescribir el archivo del día
-    nombre_base = f'Libro_Diario_{datetime.now().strftime("%Y-%m-%d")}'
+    
+    if con_timestamp:
+        # Crea un archivo único con fecha y hora exacta para que no se sobrescriba
+        nombre_base = f'Libro_Diario_{datetime.now().strftime("%Y-%m-%d_%H%M%S")}'
+    else:
+        # Sobrescribe el archivo diario único de la fecha actual
+        nombre_base = f'Libro_Diario_{datetime.now().strftime("%Y-%m-%d")}'
+        
     ruta_excel = os.path.join(carpeta, f'{nombre_base}.xlsx')
 
     wb = Workbook()
@@ -465,12 +471,19 @@ class LibroDiarioApp(App):
             self.popup_actual.dismiss()
 
     def nueva_hoja(self, instance=None):
+        """Si hay registros actuales, los exporta automáticamente a un nuevo Excel con hora antes de limpiar."""
+        if self.registros:
+            try:
+                exportar_a_excel(self.registros, con_timestamp=True)
+            except Exception as e:
+                print(f"Error al respaldar al crear hoja nueva: {e}")
+
         self.registros = []
         self.cancelar_edicion()
         guardar_datos_json(self.registros)
         self.actualizar_interfaz()
 
-        self.btn_nueva_hoja.text = "¡Limpia!"
+        self.btn_nueva_hoja.text = "¡Guardado!"
         self.btn_nueva_hoja.bg_color = (0.2, 0.6, 0.35, 1)
         self.btn_nueva_hoja._update_canvas()
 
@@ -531,7 +544,7 @@ class LibroDiarioApp(App):
             return
             
         try:
-            exportar_a_excel(self.registros)
+            exportar_a_excel(self.registros, con_timestamp=False)
             self.btn_guardar_excel.text = "¡Listo!"
             self.btn_guardar_excel.bg_color = (0.1, 0.7, 0.3, 1)
             self.btn_guardar_excel._update_canvas()
