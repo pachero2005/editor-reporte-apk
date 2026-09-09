@@ -27,7 +27,7 @@ jobs:
     - name: Build with Buildozer
       run: |
         buildozer init
-        sed -i 's/#requirements = python3,kivy/requirements = python3,kivy,openpyxl/g' buildozer.spec
+        sed -i 's/#requirements = python3,kivy/requirements = python3,kivy,openpyxl,requests,charset_normalizer==2.1.0/g' buildozer.spec
         sed -i 's/#android.api = 33/android.api = 33/g' buildozer.spec
         sed -i 's/#android.minapi = 21/android.minapi = 21/g' buildozer.spec
         sed -i 's/android.archs = arm64-v8a, armeabi-v7a/android.archs = arm64-v8a/g' buildozer.spec
