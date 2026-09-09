@@ -19,6 +19,7 @@ from kivy.metrics import dp
 from kivy.clock import Clock
 from kivy.utils import platform
 
+
 # --- PERMISOS DE ANDROID ---
 def solicitar_permisos_android():
     """Solicita permisos de almacenamiento en dispositivos Android"""
@@ -56,11 +57,11 @@ def obtener_directorio_guardado():
     return carpeta_destino
 
 def obtener_ruta_json_actual():
-    """Ruta para la hoja de trabajo actual (borrador en curso)"""
+    """Ruta para la hoja de trabajo actual (borrador en curso único)"""
     return os.path.join(obtener_directorio_guardado(), 'borrador_actual.json')
 
 def guardar_datos_json(registros, ruta=None):
-    """Guarda registros en un archivo JSON"""
+    """Guarda registros en un archivo JSON sobrescribiéndolo limpiamente"""
     try:
         if not ruta:
             ruta = obtener_ruta_json_actual()
@@ -82,7 +83,7 @@ def cargar_datos_json(ruta=None):
     return []
 
 def listar_hojas_guardadas():
-    """Lista todos los archivos de hojas guardadas disponibles para cargar"""
+    """Lista todos los archivos de respaldo Excel / JSON guardados previamente"""
     carpeta = obtener_directorio_guardado()
     archivos = []
     if os.path.exists(carpeta):
@@ -93,7 +94,7 @@ def listar_hojas_guardadas():
     return archivos
 
 def exportar_a_excel(registros):
-    """Crea el archivo Excel y guarda una copia JSON de respaldo editable"""
+    """Crea el archivo Excel y sobrescribe o gestiona su respaldo de forma limpia"""
     if not registros:
         return None
 
@@ -256,7 +257,6 @@ class LibroDiarioApp(App):
             Color(0.09, 0.10, 0.12, 1)
             RoundedRectangle(pos=(0, 0), size=(dp(2000), dp(2000)))
 
-        # ENCABEZADO SIMPLE (TÍTULO Y SUBTÍTULO)
         lbl_titulo = Label(text="Libro Diario", font_size='20sp', bold=True, color=(1, 1, 1, 1), size_hint_y=None, height=dp(26), halign='left', valign='middle')
         lbl_subtitulo = Label(text="Control de asientos contables", font_size='12sp', color=(0.6, 0.65, 0.7, 1), size_hint_y=None, height=dp(18), halign='left', valign='middle')
         lbl_titulo.bind(size=lbl_titulo.setter('text_size'))
@@ -269,11 +269,9 @@ class LibroDiarioApp(App):
         contenedor_scroll = BoxLayout(orientation='vertical', spacing=dp(10), size_hint_y=None)
         contenedor_scroll.bind(minimum_height=contenedor_scroll.setter('height'))
 
-        # FORMULARIO DE INGRESO DE DATOS
         card_form = CardContainer(orientation='vertical', padding=dp(12), spacing=dp(8), size_hint_y=None)
         card_form.bind(minimum_height=card_form.setter('height'))
 
-        # 1. Campo Fecha y Botón Cancelar edición
         box_fecha_cancelar = BoxLayout(orientation='horizontal', spacing=dp(6), size_hint_y=None, height=dp(62))
         self.txt_fecha = self._crear_campo("FECHA", datetime.now().strftime("%Y-%m-%d"))
         box_fecha_cancelar.add_widget(self.txt_fecha['container'])
@@ -292,17 +290,14 @@ class LibroDiarioApp(App):
         self.btn_cancelar.bind(on_release=self.cancelar_edicion)
         box_fecha_cancelar.add_widget(self.btn_cancelar)
 
-        # 2. Campo Detalle
         self.txt_detalle = self._crear_campo("DETALLE / CONCEPTO", "", hint="Ej. Ventas del día")
 
-        # 3. Campos DEBE y HABER
         box_montos = BoxLayout(orientation='horizontal', spacing=dp(10), size_hint_y=None, height=dp(62))
-        self.txt_debe = self._crear_campo("DEBE ($)", "", hint="0.00",is_numeric=True)
-        self.txt_haber = self._crear_campo("HABER ($)", "",hint="0.00", is_numeric=True)
+        self.txt_debe = self._crear_campo("DEBE ($)", "", hint="0.00", is_numeric=True)
+        self.txt_haber = self._crear_campo("HABER ($)", "", hint="0.00", is_numeric=True)
         box_montos.add_widget(self.txt_debe['container'])
         box_montos.add_widget(self.txt_haber['container'])
 
-        # 4. BARRA CON LOS 4 BOTONES DEBAJO DE DEBE Y HABER
         box_botones_centro = BoxLayout(
             orientation='horizontal', 
             size_hint_y=None, 
@@ -310,7 +305,6 @@ class LibroDiarioApp(App):
             spacing=dp(6)
         )
 
-        # Botón 1: ABRIR (Morado)
         self.btn_abrir_hoja = ModernButton(
             text="Abrir", 
             font_size='12sp', 
@@ -320,7 +314,6 @@ class LibroDiarioApp(App):
         )
         self.btn_abrir_hoja.bind(on_release=self.mostrar_modal_abrir)
 
-        # Botón 2: NUEVO (Naranja)
         self.btn_nueva_hoja = ModernButton(
             text="+ Nuevo", 
             font_size='12sp', 
@@ -330,7 +323,6 @@ class LibroDiarioApp(App):
         )
         self.btn_nueva_hoja.bind(on_release=self.nueva_hoja)
 
-        # Botón 3: AGREGAR / GUARDAR (Azul Cian)
         self.btn_accion = ModernButton(
             text="+ Agregar", 
             font_size='12sp', 
@@ -340,7 +332,6 @@ class LibroDiarioApp(App):
         )
         self.btn_accion.bind(on_release=self.procesar_asiento)
 
-        # Botón 4: EXPORTAR EXCEL (Verde)
         self.btn_guardar_excel = ModernButton(
             text="Excel", 
             font_size='12sp', 
@@ -355,11 +346,10 @@ class LibroDiarioApp(App):
         box_botones_centro.add_widget(self.btn_accion)
         box_botones_centro.add_widget(self.btn_guardar_excel)
 
-        # Agregar elementos al formulario en orden vertical
         card_form.add_widget(box_fecha_cancelar)
         card_form.add_widget(self.txt_detalle['container'])
         card_form.add_widget(box_montos)
-        card_form.add_widget(box_botones_centro) # <--- Botones debajo de Debe y Haber
+        card_form.add_widget(box_botones_centro)
 
         contenedor_scroll.add_widget(card_form)
 
@@ -374,7 +364,6 @@ class LibroDiarioApp(App):
         scroll_principal.add_widget(contenedor_scroll)
         main_layout.add_widget(scroll_principal)
 
-        # BARRA INFERIOR DE TOTALES
         card_totales = CardContainer(orientation='horizontal', padding=[dp(10), dp(6), dp(10), dp(6)], spacing=dp(8), size_hint_y=None, height=dp(50), bg_color=(0.18, 0.21, 0.26, 1))
         
         box_totales_num = BoxLayout(orientation='vertical', spacing=dp(1), size_hint_x=0.5)
@@ -405,7 +394,6 @@ class LibroDiarioApp(App):
         box.add_widget(input_field)
         return {'container': box, 'input': input_field}
 
-    # --- MODAL ABRIR HOJA ---
     def mostrar_modal_abrir(self, instance):
         archivos = listar_hojas_guardadas()
         
@@ -453,7 +441,7 @@ class LibroDiarioApp(App):
         
         if registros_cargados:
             self.registros = registros_cargados
-            guardar_datos_json(self.registros)
+            guardar_datos_json(self.registros) # Sobrescribe el borrador actual limpiamente
             self.cancelar_edicion()
             self.actualizar_interfaz()
             
