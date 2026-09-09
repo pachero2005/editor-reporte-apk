@@ -96,12 +96,13 @@ def listar_hojas_guardadas():
     return archivos
 
 def exportar_a_excel(registros):
-    """Crea el archivo Excel limpio sin generar copias JSON basura"""
+    """Crea o actualiza el archivo Excel diario sin generar copias duplicadas"""
     if not registros:
         return None
 
     carpeta = obtener_directorio_guardado()
-    nombre_base = f'Libro_Diario_{datetime.now().strftime("%Y-%m-%d_%H%M%S")}'
+    # Modificado para usar solo la fecha (YYYY-MM-DD) y sobrescribir el archivo del día
+    nombre_base = f'Libro_Diario_{datetime.now().strftime("%Y-%m-%d")}'
     ruta_excel = os.path.join(carpeta, f'{nombre_base}.xlsx')
 
     wb = Workbook()
@@ -452,7 +453,7 @@ class LibroDiarioApp(App):
         if nombre_archivo.endswith('.json'):
             registros_cargados = cargar_datos_json(ruta)
         else:
-            registros_cargados = [] # Si seleccionan un excel antiguo de respaldo, se maneja de forma segura
+            registros_cargados = [] 
             
         if registros_cargados:
             self.registros = registros_cargados
