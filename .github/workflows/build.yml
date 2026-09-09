@@ -37,8 +37,14 @@ jobs:
       run: |
         buildozer init
         
-        # Ajustar requisitos y configuraciones clave de manera segura
-        sed -i 's/^requirements =.*/requirements = python3,kivy,openpyxl,requests,charset_normalizer==3.0.1/' buildozer.spec
+        # Ajustar nombre, paquete y configuraciones clave de manera segura
+        sed -i 's/^#\?title = .*/title = Libro Diario/' buildozer.spec
+        sed -i 's/^#\?package.name = .*/package.name = librodiario/' buildozer.spec
+        sed -i 's/^#\?package.domain = .*/package.domain = org.pachero/' buildozer.spec
+        
+        # Ajustar requisitos asegurando las dependencias completas
+        sed -i 's/^requirements =.*/requirements = python3,kivy,openpyxl,requests,charset-normalizer,setuptools/' buildozer.spec
+        
         sed -i 's/^#\?p4a.python_recipe = .*/p4a.python_recipe = 3.10/' buildozer.spec
         sed -i 's/^#\?android.api = .*/android.api = 33/' buildozer.spec
         sed -i 's/^#\?android.minapi = .*/android.minapi = 21/' buildozer.spec
