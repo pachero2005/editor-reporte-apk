@@ -32,10 +32,10 @@ def solicitar_permisos_android():
         except Exception as e:
             print(f"Error al solicitar permisos: {e}")
 
-# --- GESTIÓN DE RUTAS Y ARCHIVOS ---
+# --- GESTIÓN DE RUTAS Y ARCHIVOS JSON MAESTRO ---
 
 def obtener_directorio_guardado():
-    """Obtiene la carpeta donde se guardan los libros de diario"""
+    """Obtiene la carpeta 'Libro Diario' dentro de Documentos del usuario o dispositivo"""
     if platform == 'android':
         carpeta_documentos = '/storage/emulated/0/Documents'
         if not os.path.exists(carpeta_documentos):
@@ -47,69 +47,62 @@ def obtener_directorio_guardado():
             carpeta_documentos = os.path.join(user_dir, 'Documentos')
 
     carpeta_destino = os.path.join(carpeta_documentos, 'Libro Diario')
+    
     try:
         os.makedirs(carpeta_destino, exist_ok=True)
     except Exception as e:
-        print(f"Error al crear carpeta: {e}")
-        carpeta_destino = carpeta_documentos
+        print(f"Error al crear carpeta pública, usando almacenamiento interno: {e}")
+        app = App.get_running_app()
+        if app and app.user_data_dir:
+            carpeta_destino = os.path.join(app.user_data_dir, 'LibroDiario_Datos')
+            os.makedirs(carpeta_destino, exist_ok=True)
 
     return carpeta_destino
 
-def obtener_ruta_json_actual():
-    """Ruta para la hoja de trabajo actual (borrador en curso)"""
-    return os.path.join(obtener_directorio_guardado(), 'borrador_actual.json')
+def obtener_ruta_archivo_maestro():
+    """Ruta del único archivo JSON general que contendrá todas las sesiones históricas"""
+    return os.path.join(obtener_directorio_guardado(), 'LibroDiario_General.json')
 
-def guardar_datos_json(registros, ruta=None):
-    """Guarda registros en un archivo JSON"""
-    try:
-        if not ruta:
-            ruta = obtener_ruta_json_actual()
-        with open(ruta, 'w', encoding='utf-8') as f:
-            json.dump(registros, f, ensure_ascii=False, indent=4)
-    except Exception as e:
-        print(f"Error al guardar JSON: {e}")
-
-def cargar_datos_json(ruta=None):
-    """Carga registros desde un archivo JSON"""
-    try:
-        if not ruta:
-            ruta = obtener_ruta_json_actual()
-        if os.path.exists(ruta):
+def cargar_base_datos_maestra():
+    """Carga el diccionario maestro filtrando hojas vacías"""
+    ruta = obtener_ruta_archivo_maestro()
+    if os.path.exists(ruta):
+        try:
             with open(ruta, 'r', encoding='utf-8') as f:
                 data = json.load(f)
-                if isinstance(data, list):
-                    return data
+                if isinstance(data, dict) and data:
+                    data_filtrada = {k: v for k, v in data.items() if isinstance(v, list) and len(v) > 0}
+                    if data_filtrada:
+                        return data_filtrada
+        except Exception as e:
+            print(f"Error al cargar archivo maestro: {e}")
+    
+    timestamp_inicial = datetime.now().strftime("Libro_%Y-%m-%d_%H-%M-%S")
+    return {timestamp_inicial: []}
+
+def guardar_base_datos_maestra(data_dict):
+    """Guarda el diccionario maestro en el único archivo JSON"""
+    try:
+        ruta = obtener_ruta_archivo_maestro()
+        data_limpia = {k: v for k, v in data_dict.items() if isinstance(v, list) and len(v) > 0}
+        
+        if not data_limpia:
+            if os.path.exists(ruta):
+                os.remove(ruta)
+            return
+
+        with open(ruta, 'w', encoding='utf-8') as f:
+            json.dump(data_limpia, f, ensure_ascii=False, indent=4)
     except Exception as e:
-        print(f"Error al cargar JSON: {e}")
-    return []
+        print(f"Error al guardar archivo maestro: {e}")
 
-def listar_hojas_guardadas():
-    """Lista todos los archivos de respaldo Excel o JSON guardados previamente"""
-    carpeta = obtener_directorio_guardado()
-    archivos = []
-    if os.path.exists(carpeta):
-        for f in os.listdir(carpeta):
-            if f.startswith('Libro_Diario_') and (f.endswith('.json') or f.endswith('.xlsx')):
-                if f not in archivos:
-                    archivos.append(f)
-    archivos.sort(reverse=True)
-    return archivos
-
-def exportar_a_excel(registros, con_timestamp=False):
-    """Crea un archivo Excel. Si con_timestamp=True, genera un nombre único con hora exacta."""
+def exportar_a_excel_personalizado(registros, nombre_archivo_excel):
+    """Crea o actualiza un archivo Excel independiente basado en el nombre de la sesión"""
     if not registros:
         return None
 
     carpeta = obtener_directorio_guardado()
-    
-    if con_timestamp:
-        # Crea un archivo único con fecha y hora exacta para que no se sobrescriba
-        nombre_base = f'Libro_Diario_{datetime.now().strftime("%Y-%m-%d_%H%M%S")}'
-    else:
-        # Sobrescribe el archivo diario único de la fecha actual
-        nombre_base = f'Libro_Diario_{datetime.now().strftime("%Y-%m-%d")}'
-        
-    ruta_excel = os.path.join(carpeta, f'{nombre_base}.xlsx')
+    ruta_excel = os.path.join(carpeta, f"{nombre_archivo_excel}.xlsx")
 
     wb = Workbook()
     ws = wb.active
@@ -247,15 +240,35 @@ class LibroDiarioApp(App):
     def on_start(self):
         solicitar_permisos_android()
 
+    def _guardar_estado_actual(self):
+        """Guarda la sesión actual dentro del diccionario maestro y actualiza su propio Excel"""
+        if hasattr(self, 'libros_data') and hasattr(self, 'nombre_hoja_actual'):
+            if self.registros:
+                self.libros_data[self.nombre_hoja_actual] = self.registros
+                exportar_a_excel_personalizado(self.registros, self.nombre_hoja_actual)
+            else:
+                if self.nombre_hoja_actual in self.libros_data:
+                    del self.libros_data[self.nombre_hoja_actual]
+            
+            guardar_base_datos_maestra(self.libros_data)
+
     def on_pause(self):
-        guardar_datos_json(self.registros)
+        self._guardar_estado_actual()
         return True
 
     def on_stop(self):
-        guardar_datos_json(self.registros)
+        self._guardar_estado_actual()
 
     def build(self):
-        self.registros = cargar_datos_json()
+        self.libros_data = cargar_base_datos_maestra()
+        
+        if not self.libros_data:
+            timestamp_inicial = f"Libro_Diario_{datetime.now().strftime('%Y-%m-%d_%H-%M-%S')}"
+            self.libros_data = {timestamp_inicial: []}
+
+        self.nombre_hoja_actual = list(self.libros_data.keys())[-1]
+        self.registros = self.libros_data[self.nombre_hoja_actual]
+        
         self.indice_edicion = None
 
         main_layout = BoxLayout(orientation='vertical', padding=dp(10), spacing=dp(10))
@@ -263,9 +276,8 @@ class LibroDiarioApp(App):
             Color(0.09, 0.10, 0.12, 1)
             RoundedRectangle(pos=(0, 0), size=(dp(2000), dp(2000)))
 
-        # ENCABEZADO SIMPLE (TÍTULO Y SUBTÍTULO)
-        lbl_titulo = Label(text="Libro Diario", font_size='20sp', bold=True, color=(1, 1, 1, 1), size_hint_y=None, height=dp(26), halign='left', valign='middle')
-        lbl_subtitulo = Label(text="Control de asientos contables", font_size='12sp', color=(0.6, 0.65, 0.7, 1), size_hint_y=None, height=dp(18), halign='left', valign='middle')
+        lbl_titulo = Label(text="Libro Diario (Excel Independiente por Sesión)", font_size='20sp', bold=True, color=(1, 1, 1, 1), size_hint_y=None, height=dp(26), halign='left', valign='middle')
+        lbl_subtitulo = Label(text="'+ Nuevo' crea un archivo Excel nuevo y cambia a él", font_size='12sp', color=(0.6, 0.65, 0.7, 1), size_hint_y=None, height=dp(18), halign='left', valign='middle')
         lbl_titulo.bind(size=lbl_titulo.setter('text_size'))
         lbl_subtitulo.bind(size=lbl_subtitulo.setter('text_size'))
         
@@ -276,11 +288,9 @@ class LibroDiarioApp(App):
         contenedor_scroll = BoxLayout(orientation='vertical', spacing=dp(10), size_hint_y=None)
         contenedor_scroll.bind(minimum_height=contenedor_scroll.setter('height'))
 
-        # FORMULARIO DE INGRESO DE DATOS
         card_form = CardContainer(orientation='vertical', padding=dp(12), spacing=dp(8), size_hint_y=None)
         card_form.bind(minimum_height=card_form.setter('height'))
 
-        # 1. Campo Fecha y Botón Cancelar edición
         box_fecha_cancelar = BoxLayout(orientation='horizontal', spacing=dp(6), size_hint_y=None, height=dp(62))
         self.txt_fecha = self._crear_campo("FECHA", datetime.now().strftime("%Y-%m-%d"))
         box_fecha_cancelar.add_widget(self.txt_fecha['container'])
@@ -299,17 +309,14 @@ class LibroDiarioApp(App):
         self.btn_cancelar.bind(on_release=self.cancelar_edicion)
         box_fecha_cancelar.add_widget(self.btn_cancelar)
 
-        # 2. Campo Detalle
         self.txt_detalle = self._crear_campo("DETALLE / CONCEPTO", "", hint="Ej. Ventas del día")
 
-        # 3. Campos DEBE y HABER
         box_montos = BoxLayout(orientation='horizontal', spacing=dp(10), size_hint_y=None, height=dp(62))
         self.txt_debe = self._crear_campo("DEBE ($)", "", hint="0.00", is_numeric=True)
         self.txt_haber = self._crear_campo("HABER ($)", "", hint="0.00", is_numeric=True)
         box_montos.add_widget(self.txt_debe['container'])
         box_montos.add_widget(self.txt_haber['container'])
 
-        # 4. BARRA CON LOS 4 BOTONES DEBAJO DE DEBE Y HABER
         box_botones_centro = BoxLayout(
             orientation='horizontal', 
             size_hint_y=None, 
@@ -317,7 +324,6 @@ class LibroDiarioApp(App):
             spacing=dp(6)
         )
 
-        # Botón 1: ABRIR (Morado)
         self.btn_abrir_hoja = ModernButton(
             text="Abrir", 
             font_size='12sp', 
@@ -327,7 +333,6 @@ class LibroDiarioApp(App):
         )
         self.btn_abrir_hoja.bind(on_release=self.mostrar_modal_abrir)
 
-        # Botón 2: NUEVO (Naranja)
         self.btn_nueva_hoja = ModernButton(
             text="+ Nuevo", 
             font_size='12sp', 
@@ -337,7 +342,6 @@ class LibroDiarioApp(App):
         )
         self.btn_nueva_hoja.bind(on_release=self.nueva_hoja)
 
-        # Botón 3: AGREGAR / GUARDAR (Azul Cian)
         self.btn_accion = ModernButton(
             text="+ Agregar", 
             font_size='12sp', 
@@ -347,7 +351,6 @@ class LibroDiarioApp(App):
         )
         self.btn_accion.bind(on_release=self.procesar_asiento)
 
-        # Botón 4: EXPORTAR EXCEL (Verde)
         self.btn_guardar_excel = ModernButton(
             text="Excel", 
             font_size='12sp', 
@@ -362,13 +365,16 @@ class LibroDiarioApp(App):
         box_botones_centro.add_widget(self.btn_accion)
         box_botones_centro.add_widget(self.btn_guardar_excel)
 
-        # Agregar elementos al formulario en orden vertical
         card_form.add_widget(box_fecha_cancelar)
         card_form.add_widget(self.txt_detalle['container'])
         card_form.add_widget(box_montos)
         card_form.add_widget(box_botones_centro)
 
         contenedor_scroll.add_widget(card_form)
+
+        self.lbl_indicador_hoja = Label(text=f"SESIÓN ACTIVA: {self.nombre_hoja_actual}", font_size='11sp', bold=True, color=(0.4, 0.8, 1, 1), size_hint_y=None, height=dp(20), halign='left')
+        self.lbl_indicador_hoja.bind(size=self.lbl_indicador_hoja.setter('text_size'))
+        contenedor_scroll.add_widget(self.lbl_indicador_hoja)
 
         lbl_seccion = Label(text="MOVIMIENTOS REGISTRADOS", font_size='12sp', bold=True, color=(0.6, 0.65, 0.7, 1), size_hint_y=None, height=dp(20), halign='left')
         lbl_seccion.bind(size=lbl_seccion.setter('text_size'))
@@ -381,7 +387,6 @@ class LibroDiarioApp(App):
         scroll_principal.add_widget(contenedor_scroll)
         main_layout.add_widget(scroll_principal)
 
-        # BARRA INFERIOR DE TOTALES
         card_totales = CardContainer(orientation='horizontal', padding=[dp(10), dp(6), dp(10), dp(6)], spacing=dp(8), size_hint_y=None, height=dp(50), bg_color=(0.18, 0.21, 0.26, 1))
         
         box_totales_num = BoxLayout(orientation='vertical', spacing=dp(1), size_hint_x=0.5)
@@ -412,31 +417,33 @@ class LibroDiarioApp(App):
         box.add_widget(input_field)
         return {'container': box, 'input': input_field}
 
-    # --- MODAL ABRIR HOJA ---
     def mostrar_modal_abrir(self, instance):
-        archivos = listar_hojas_guardadas()
+        self._guardar_estado_actual()
+        nombres_hojas = [k for k, v in self.libros_data.items() if len(v) > 0]
         
         contenido = BoxLayout(orientation='vertical', spacing=dp(10), padding=dp(10))
         
-        if not archivos:
-            contenido.add_widget(Label(text="No hay hojas guardadas previamente.", color=(0.8, 0.8, 0.8, 1)))
+        if not nombres_hojas:
+            contenido.add_widget(Label(text="No hay sesiones guardadas.", color=(0.8, 0.8, 0.8, 1)))
         else:
             scroll = ScrollView()
             grid = GridLayout(cols=1, spacing=dp(8), size_hint_y=None)
             grid.bind(minimum_height=grid.setter('height'))
 
-            for nombre_archivo in archivos:
-                nombre_visible = nombre_archivo.replace('Libro_Diario_', 'Hoja: ').replace('.json', '').replace('.xlsx', '')
-                
-                btn_archivo = ModernButton(
-                    text=nombre_visible, 
-                    font_size='13sp', 
-                    bg_color=(0.18, 0.22, 0.28, 1), 
+            for nombre in nombres_hojas:
+                texto_btn = f"📁 {nombre}.xlsx"
+                if nombre == self.nombre_hoja_actual:
+                    texto_btn += " (Actual)"
+
+                btn_hoja = ModernButton(
+                    text=texto_btn, 
+                    font_size='12sp', 
+                    bg_color=(0.18, 0.22, 0.28, 1) if nombre != self.nombre_hoja_actual else (0.2, 0.45, 0.65, 1), 
                     size_hint_y=None, 
                     height=dp(45)
                 )
-                btn_archivo.bind(on_release=lambda b, fn=nombre_archivo: self.cargar_hoja_seleccionada(fn))
-                grid.add_widget(btn_archivo)
+                btn_hoja.bind(on_release=lambda b, nh=nombre: self.seleccionar_hoja(nh))
+                grid.add_widget(btn_hoja)
 
             scroll.add_widget(grid)
             contenido.add_widget(scroll)
@@ -445,7 +452,7 @@ class LibroDiarioApp(App):
         contenido.add_widget(btn_cerrar)
 
         popup = Popup(
-            title="Selecciona una Hoja guardada", 
+            title="Seleccionar Archivo / Sesión", 
             content=contenido, 
             size_hint=(0.9, 0.7),
             background_color=(0.12, 0.14, 0.18, 1)
@@ -454,36 +461,33 @@ class LibroDiarioApp(App):
         self.popup_actual = popup
         popup.open()
 
-    def cargar_hoja_seleccionada(self, nombre_archivo):
-        ruta = os.path.join(obtener_directorio_guardado(), nombre_archivo)
-        if nombre_archivo.endswith('.json'):
-            registros_cargados = cargar_datos_json(ruta)
-        else:
-            registros_cargados = [] 
-            
-        if registros_cargados:
-            self.registros = registros_cargados
-            guardar_datos_json(self.registros)
-            self.cancelar_edicion()
-            self.actualizar_interfaz()
-            
+    def seleccionar_hoja(self, nombre_hoja):
+        self._guardar_estado_actual()
+        self.nombre_hoja_actual = nombre_hoja
+        self.registros = self.libros_data.get(nombre_hoja, [])
+        self.cancelar_edicion()
+        self.lbl_indicador_hoja.text = f"SESIÓN ACTIVA: {self.nombre_hoja_actual}"
+        self.actualizar_interfaz()
+        
         if hasattr(self, 'popup_actual'):
             self.popup_actual.dismiss()
 
     def nueva_hoja(self, instance=None):
-        """Si hay registros actuales, los exporta automáticamente a un nuevo Excel con hora antes de limpiar."""
-        if self.registros:
-            try:
-                exportar_a_excel(self.registros, con_timestamp=True)
-            except Exception as e:
-                print(f"Error al respaldar al crear hoja nueva: {e}")
+        """Crea un nuevo archivo Excel independiente con marca de tiempo única"""
+        self._guardar_estado_actual()
+        
+        nuevo_nombre = f"Libro_Diario_{datetime.now().strftime('%Y-%m-%d_%H-%M-%S')}"
+        self.libros_data[nuevo_nombre] = []
+        self.nombre_hoja_actual = nuevo_nombre
+        self.registros = self.libros_data[nuevo_nombre]
 
-        self.registros = []
         self.cancelar_edicion()
-        guardar_datos_json(self.registros)
+        self._guardar_estado_actual()
+        
+        self.lbl_indicador_hoja.text = f"SESIÓN ACTIVA: {self.nombre_hoja_actual}"
         self.actualizar_interfaz()
 
-        self.btn_nueva_hoja.text = "¡Guardado!"
+        self.btn_nueva_hoja.text = "¡Nuevo Creado!"
         self.btn_nueva_hoja.bg_color = (0.2, 0.6, 0.35, 1)
         self.btn_nueva_hoja._update_canvas()
 
@@ -535,7 +539,7 @@ class LibroDiarioApp(App):
         else:
             self.registros.append(registro)
 
-        guardar_datos_json(self.registros)
+        self._guardar_estado_actual()
         self.limpiar_campos()
         self.actualizar_interfaz()
 
@@ -544,15 +548,15 @@ class LibroDiarioApp(App):
             return
             
         try:
-            exportar_a_excel(self.registros, con_timestamp=False)
-            self.btn_guardar_excel.text = "¡Listo!"
+            exportar_a_excel_personalizado(self.registros, self.nombre_hoja_actual)
+            self.btn_guardar_excel.text = "¡Guardado!"
             self.btn_guardar_excel.bg_color = (0.1, 0.7, 0.3, 1)
             self.btn_guardar_excel._update_canvas()
         except Exception as e:
             self.btn_guardar_excel.text = "Error"
             self.btn_guardar_excel.bg_color = (0.8, 0.2, 0.2, 1)
             self.btn_guardar_excel._update_canvas()
-            print(f"Error al guardar: {e}")
+            print(f"Error al guardar Excel: {e}")
 
         def restaurar_boton(dt):
             self.btn_guardar_excel.text = "Excel"
@@ -579,7 +583,7 @@ class LibroDiarioApp(App):
 
         if index < len(self.registros):
             self.registros.pop(index)
-            guardar_datos_json(self.registros)
+            self._guardar_estado_actual()
             self.actualizar_interfaz()
 
     def actualizar_interfaz(self):
